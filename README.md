@@ -66,8 +66,9 @@ The mod jar is written to `build/libs`. `./gradlew test` runs the protocol,
 argument, action queue, and screenshot tests without launching Minecraft.
 
 GitHub Actions builds and tests every push and pull request. A push to `main`
-publishes the jar on the `latest` release, replacing the previous one. A tag
-named `v*` publishes its own release.
+publishes the jar twice: on the `latest` release, which is replaced every
+build, and on `v<mod_version>` from `gradle.properties`, which is created once
+per version. Pushing a `v*` tag publishes that tag on its own.
 
 ## License
 
