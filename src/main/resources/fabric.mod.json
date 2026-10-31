@@ -1,0 +1,23 @@
+{
+	"schemaVersion": 1,
+	"id": "sharkmcp",
+	"version": "${version}",
+	"name": "SharkMCP",
+	"description": "Local MCP server so an AI can see and control this Minecraft client.",
+	"authors": ["Snake Studios"],
+	"contact": {
+		"homepage": "https://sharkmcp.snakestudios.net/",
+		"sources": "https://github.com/SnakeStudios/SharkMCP"
+	},
+	"license": "MIT",
+	"environment": "client",
+	"entrypoints": {
+		"client": ["net.snakestudios.sharkmcp.SharkMcpClient"]
+	},
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}

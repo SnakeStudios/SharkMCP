@@ -1,0 +1,14 @@
+.gradle/
+build/
+run/
+logs/
+*.log
+.idea/
+*.iml
+out/
+.vscode/
+.classpath
+.project
+.settings/
+bin/
+remappedSrc/
