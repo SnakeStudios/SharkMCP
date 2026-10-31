@@ -1,5 +1,7 @@
 # SharkMCP
 
+<img src="modrinth.png" width="192" alt="SharkMCP">
+
 SharkMCP is a Fabric client mod that lets an AI see and play a Minecraft
 client. It runs a small MCP server on `127.0.0.1:8765` and exposes the client
 as tools: where the player is, what they can see, and what they can do.
