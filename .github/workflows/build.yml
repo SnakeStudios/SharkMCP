@@ -42,7 +42,7 @@ jobs:
           if gh release view "v$version" >/dev/null 2>&1; then
             echo "v$version already published"
           else
-            gh release create "v$version" "$jar" --title "v$version" --notes "Built from ${GITHUB_SHA}." --verify-tag
+            gh release create "v$version" "$jar" --title "v$version" --notes "Built from ${GITHUB_SHA}."
           fi
 
       - name: Publish release
