@@ -65,8 +65,9 @@ POST: `initialize`, `tools/list`, `tools/call`, and `ping`. No SSE, no OAuth.
 The mod jar is written to `build/libs`. `./gradlew test` runs the protocol,
 argument, action queue, and screenshot tests without launching Minecraft.
 
-GitHub Actions builds and tests every push and pull request. Pushing a tag
-named `v*` also publishes the jar as a release.
+GitHub Actions builds and tests every push and pull request. A push to `main`
+publishes the jar on the `latest` release, replacing the previous one. A tag
+named `v*` publishes its own release.
 
 ## License
 
