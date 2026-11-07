@@ -180,8 +180,8 @@ public final class McpServer {
 		shot.add("hide_hud", bool("Hide the HUD for this shot, then restore it."));
 		tool(tools, "screenshot", "Capture the framebuffer as a 1280x720-or-smaller jpeg. Use it for visual questions (layout, colors, entities, what the world looks like). For items, inventories or open containers use get_inventory instead: it returns exact item data, lore, NBT and the container contents, which a screenshot cannot read reliably.", shot);
 		JsonObject wait = obj();
-		wait.add("seconds", num("Seconds to wait. Required.", null));
-		tool(tools, "wait", "Wait, blocking the action queue.", wait);
+		wait.add("seconds", num("Seconds to wait. Required. Capped at 5 seconds.", null));
+		tool(tools, "wait", "Wait, blocking the action queue. Maximum 5 seconds.", wait);
 		tool(tools, "stop", "Release inputs and drop queued actions. Chat is left alone.", obj());
 		JsonObject result = new JsonObject();
 		result.add("tools", tools);

@@ -609,7 +609,7 @@ public final class SharkMcpClient implements ClientModInitializer {
 	}
 
 	String waitSeconds(double seconds) {
-		seconds = Math.min(Math.max(seconds, 0), 60);
+		seconds = Math.min(Math.max(seconds, 0), 5);
 		int ticks = Math.max(1, (int) Math.ceil(seconds * 20));
 		return awaitMotion(new Motion(ticks, 0, 0, false, false, false));
 	}
