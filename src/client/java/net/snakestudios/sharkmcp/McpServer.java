@@ -114,7 +114,7 @@ public final class McpServer {
 		result.add("capabilities", capabilities);
 		JsonObject info = new JsonObject();
 		info.addProperty("name", "sharkmcp");
-		info.addProperty("version", "1.0.0");
+		info.addProperty("version", "1.0.1");
 		result.add("serverInfo", info);
 		result.addProperty("instructions",
 				"World actions run one at a time. chat is a separate queue and does not wait. "
@@ -126,7 +126,7 @@ public final class McpServer {
 	private static JsonObject tools() {
 		JsonArray tools = new JsonArray();
 		tool(tools, "get_state", "Position, look, health, hunger, xp, server, whether the HUD is hidden.", obj());
-		tool(tools, "get_inventory", "Hotbar, main inventory, and offhand.", obj());
+		tool(tools, "get_inventory", "Every inventory slot: hotbar, main, armor, offhand, cursor and any open container. Each item includes its id, count, names, lore, enchantments, attributes, tags, durability, tooltip and full NBT/components.", obj());
 		JsonObject chat = obj();
 		chat.add("limit", num("How many recent lines.", 50));
 		tool(tools, "get_chat", "Recent chat and game messages.", chat);
@@ -166,7 +166,7 @@ public final class McpServer {
 		tool(tools, "command", "Run a server command after the current action finishes.", command);
 		JsonObject connect = obj();
 		connect.add("address", str("Host or host:port."));
-		tool(tools, "connect", "Connect to a server. Disconnects first if already in a world.", connect);
+		tool(tools, "connect", "Connect to a server. Disconnects first if already in a world. Server resource packs are accepted automatically.", connect);
 		tool(tools, "disconnect", "Leave the current world or server.", obj());
 		tool(tools, "reconnect", "Disconnect and connect again to the last server.", obj());
 		tool(tools, "close_screen", "Close the open screen, like pressing Escape. Does nothing if no screen is open.", obj());

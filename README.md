@@ -15,7 +15,9 @@ is exposed to the network.
 Reads happen immediately.
 
 - `get_state` — position, look, health, hunger, xp, server, open screen, HUD
-- `get_inventory` — hotbar, inventory, offhand
+- `get_inventory` — every slot: hotbar, main, armor, offhand, cursor, and open
+  containers. Each item includes its id, count, both names, lore, enchantments,
+  attributes, tags, durability, full tooltip, custom data and raw NBT/components.
 - `get_chat` — recent chat and game messages
 - `get_scoreboard` — displayed objectives
 - `list_commands` — commands the client may use
@@ -29,7 +31,8 @@ Everything else runs one at a time, in the order it was asked.
 - `attack` and `use` — click, or hold, the crosshair target
 - `hotbar` — select a slot
 - `command` — run a server command, without the leading slash
-- `connect`, `disconnect`, `reconnect`
+- `connect`, `disconnect`, `reconnect` — the tool waits for the old session to
+  close before reconnecting and accepts the server's resource packs automatically
 - `close_screen` — close the open screen
 - `set_hud` — hide or show the HUD
 - `screenshot` — the framebuffer as a JPEG, at most 1280×720
@@ -48,7 +51,7 @@ queued actions and releases held inputs. It does not touch the chat queue.
 
 ## Install
 
-Put `sharkmcp-1.0.0.jar` and Fabric API in your `mods` folder and launch the
+Put `sharkmcp-1.0.1.jar` and Fabric API in your `mods` folder and launch the
 1.21.11 profile. The log prints:
 
 ```

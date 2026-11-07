@@ -14,6 +14,12 @@
 	"entrypoints": {
 		"client": ["net.snakestudios.sharkmcp.SharkMcpClient"]
 	},
+	"mixins": [
+		{
+			"config": "sharkmcp.client.mixins.json",
+			"environment": "client"
+		}
+	],
 	"depends": {
 		"fabricloader": ">=0.20.1",
 		"minecraft": "~1.21.11",

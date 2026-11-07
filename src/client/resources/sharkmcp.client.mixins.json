@@ -1,0 +1,12 @@
+{
+	"required": true,
+	"minVersion": "0.8",
+	"package": "net.snakestudios.sharkmcp.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+		"HandledScreenMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

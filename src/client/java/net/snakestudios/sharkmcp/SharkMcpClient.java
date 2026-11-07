@@ -9,9 +9,15 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.screen.DisconnectedScreen;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.TitleScreen;
+import net.minecraft.client.gui.screen.ingame.HandledScreen;
+import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.client.gui.screen.multiplayer.ConnectScreen;
+import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.input.AbstractInput;
+import net.minecraft.client.input.Input;
 import net.minecraft.client.network.ClientPlayNetworkHandler;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.network.PlayerListEntry;
@@ -19,14 +25,30 @@ import net.minecraft.client.network.ServerAddress;
 import net.minecraft.client.network.ServerInfo;
 import net.minecraft.client.texture.NativeImage;
 import net.minecraft.client.util.ScreenshotRecorder;
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.component.type.AttributeModifiersComponent;
+import net.minecraft.component.type.ItemEnchantmentsComponent;
+import net.minecraft.component.type.LoreComponent;
+import net.minecraft.component.type.NbtComponent;
+import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.tooltip.TooltipType;
+import net.minecraft.nbt.NbtElement;
+import net.minecraft.nbt.NbtOps;
 import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
+import net.minecraft.registry.DynamicRegistryManager;
 import net.minecraft.registry.Registries;
+import net.minecraft.registry.RegistryOps;
 import net.minecraft.scoreboard.Scoreboard;
 import net.minecraft.scoreboard.ScoreboardDisplaySlot;
 import net.minecraft.scoreboard.ScoreboardEntry;
 import net.minecraft.scoreboard.ScoreboardObjective;
+import net.minecraft.screen.ScreenHandler;
+import net.minecraft.screen.ScreenTexts;
+import net.minecraft.screen.slot.Slot;
+import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
 import net.minecraft.util.PlayerInput;
 import net.minecraft.util.hit.BlockHitResult;
@@ -34,9 +56,9 @@ import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec2f;
-import net.minecraft.client.input.Input;
 
 import java.util.ArrayDeque;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -52,6 +74,10 @@ public final class SharkMcpClient implements ClientModInitializer {
 	private Motion motion;
 	private Input savedInput;
 	private HttpServer server;
+	private long nextBindAttempt;
+	private long lastBindLog;
+	private long lastTickError;
+	private boolean bindWarned;
 
 	@Override
 	public void onInitializeClient() {
@@ -67,15 +93,30 @@ public final class SharkMcpClient implements ClientModInitializer {
 		});
 		ClientTickEvents.START_CLIENT_TICK.register(this::onStartTick);
 		ClientTickEvents.END_CLIENT_TICK.register(this::onEndTick);
-		try {
-			server = McpServer.start();
-		} catch (Exception e) {
-			throw new RuntimeException("SharkMCP failed to bind 127.0.0.1:" + McpServer.PORT, e);
-		}
+		tryBind();
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
 			actions.close();
 			if (server != null) server.stop(0);
 		});
+	}
+
+	private void tryBind() {
+		try {
+			server = McpServer.start();
+			bindWarned = false;
+		} catch (Exception | LinkageError e) {
+			long now = System.currentTimeMillis();
+			// A missing jdk.httpserver (a stripped game runtime) will not fix itself.
+			nextBindAttempt = e instanceof LinkageError ? Long.MAX_VALUE : now + 10_000L;
+			if (!bindWarned) {
+				bindWarned = true;
+				lastBindLog = now;
+				McpServer.LOGGER.error("SharkMCP could not bind 127.0.0.1:{}. Is another client already using it? Retrying.", McpServer.PORT, e);
+			} else if (now - lastBindLog > 60_000L) {
+				lastBindLog = now;
+				McpServer.LOGGER.warn("SharkMCP still could not bind 127.0.0.1:{}", McpServer.PORT);
+			}
+		}
 	}
 
 	String enqueue(Supplier<String> work) throws Exception {
@@ -88,6 +129,8 @@ public final class SharkMcpClient implements ClientModInitializer {
 
 	String stop() {
 		return actions.stop(() -> onClient(() -> {
+			MinecraftClient client = MinecraftClient.getInstance();
+			cancelConnecting(client);
 			release();
 			if (motion != null) {
 				motion.done.complete("stopped");
@@ -107,30 +150,59 @@ public final class SharkMcpClient implements ClientModInitializer {
 	}
 
 	private void onStartTick(MinecraftClient client) {
-		remember(client);
-		if (motion != null && motion.look) stepLook(client);
-		if (held.active && client.player != null) {
-			if (client.player.input != held) {
-				savedInput = client.player.input;
-				client.player.input = held;
+		try {
+			if (server == null && System.currentTimeMillis() >= nextBindAttempt) tryBind();
+			closeOrphanScreen(client);
+			remember(client);
+			if (motion != null && motion.look) stepLook(client);
+			if (held.active && client.player != null) {
+				if (client.player.input != held) {
+					savedInput = client.player.input;
+					client.player.input = held;
+				}
 			}
+			if (motion != null && motion.holdUse && client.options != null) {
+				client.options.useKey.setPressed(true);
+			}
+			if (motion != null && motion.attack) attackTick(client);
+		} catch (Throwable t) {
+			logTickError(t);
 		}
-		if (motion != null && motion.holdUse && client.options != null) {
-			client.options.useKey.setPressed(true);
-		}
-		if (motion != null && motion.attack) attackTick(client);
 	}
 
 	private void onEndTick(MinecraftClient client) {
-		flushChat(client);
-		if (motion == null) return;
-		motion.ticks--;
-		if (motion.ticks <= 0) {
-			Motion finished = motion;
-			motion = null;
-			releaseHold(client, finished);
-			finished.done.complete("ok");
+		try {
+			closeOrphanScreen(client);
+			flushChat(client);
+			if (motion == null) return;
+			motion.ticks--;
+			if (motion.ticks <= 0) {
+				Motion finished = motion;
+				motion = null;
+				releaseHold(client, finished);
+				finished.done.complete("ok");
+			}
+		} catch (Throwable t) {
+			logTickError(t);
 		}
+	}
+
+	/**
+	 * A disconnect or server transfer can null the player while an inventory or chest
+	 * screen is still open. Vanilla's HandledScreen.tick() then dereferences the player
+	 * and crashes the game, so drop that screen before it is ticked.
+	 */
+	private static void closeOrphanScreen(MinecraftClient client) {
+		if (client.player == null && client.currentScreen instanceof HandledScreen<?>) {
+			client.setScreen(new TitleScreen());
+		}
+	}
+
+	private void logTickError(Throwable t) {
+		long now = System.currentTimeMillis();
+		if (now - lastTickError < 5000L) return;
+		lastTickError = now;
+		McpServer.LOGGER.error("SharkMCP tick failed", t);
 	}
 
 	private void flushChat(MinecraftClient client) {
@@ -191,14 +263,69 @@ public final class SharkMcpClient implements ClientModInitializer {
 
 	String inventory() {
 		return onClient(() -> {
-			ClientPlayerEntity player = MinecraftClient.getInstance().player;
+			MinecraftClient client = MinecraftClient.getInstance();
+			ClientPlayerEntity player = client.player;
 			if (player == null) return "{\"connected\":false}";
 			PlayerInventory inventory = player.getInventory();
 			JsonObject json = new JsonObject();
 			json.addProperty("selectedSlot", inventory.getSelectedSlot());
-			json.add("main", stacks(inventory.getMainStacks()));
-			JsonObject off = stack(player.getOffHandStack());
-			if (off != null) json.add("offhand", off);
+
+			JsonArray hotbar = new JsonArray();
+			JsonArray main = new JsonArray();
+			List<ItemStack> stacks = inventory.getMainStacks();
+			int hotbarSize = PlayerInventory.getHotbarSize();
+			for (int i = 0; i < stacks.size(); i++) {
+				JsonObject entry = stack(stacks.get(i), client, player);
+				if (entry == null) continue;
+				boolean inHotbar = i < hotbarSize;
+				entry.addProperty("slot", i);
+				entry.addProperty("section", inHotbar ? "hotbar" : "main");
+				(inHotbar ? hotbar : main).add(entry);
+			}
+			json.add("hotbar", hotbar);
+			json.add("main", main);
+
+			JsonObject armor = new JsonObject();
+			for (EquipmentSlot slot : new EquipmentSlot[] {EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET}) {
+				JsonObject entry = stack(player.getEquippedStack(slot), client, player);
+				if (entry == null) continue;
+				entry.addProperty("slot", slot.getName());
+				entry.addProperty("section", "armor");
+				armor.add(slot.getName(), entry);
+			}
+			json.add("armor", armor);
+
+			JsonObject offhand = stack(player.getOffHandStack(), client, player);
+			if (offhand != null) {
+				offhand.addProperty("slot", EquipmentSlot.OFFHAND.getName());
+				offhand.addProperty("section", "offhand");
+				json.add("offhand", offhand);
+			}
+
+			ScreenHandler handler = player.currentScreenHandler;
+			JsonObject cursor = stack(handler.getCursorStack(), client, player);
+			if (cursor != null) {
+				cursor.addProperty("section", "cursor");
+				json.add("cursor", cursor);
+			}
+
+			if (client.currentScreen instanceof HandledScreen<?> screen && !(screen instanceof InventoryScreen)) {
+				JsonObject open = new JsonObject();
+				open.addProperty("title", screen.getTitle().getString());
+				open.addProperty("syncId", handler.syncId);
+				JsonArray slots = new JsonArray();
+				for (Slot slot : handler.slots) {
+					if (slot.inventory instanceof PlayerInventory) continue;
+					JsonObject entry = stack(slot.getStack(), client, player);
+					if (entry == null) continue;
+					entry.addProperty("slot", slot.id);
+					entry.addProperty("containerSlot", slot.getIndex());
+					entry.addProperty("section", "container");
+					slots.add(entry);
+				}
+				open.add("slots", slots);
+				json.add("openContainer", open);
+			}
 			return json.toString();
 		});
 	}
@@ -394,39 +521,72 @@ public final class SharkMcpClient implements ClientModInitializer {
 	}
 
 	String connect(String address) {
-		if (address.length() > 256) throw new IllegalArgumentException("address too long");
-		lastAddress = address;
-		boolean inWorld = onClient(() -> MinecraftClient.getInstance().player != null);
-		if (inWorld) disconnect();
+		String target = address == null ? "" : address.trim();
+		if (target.isEmpty()) throw new IllegalArgumentException("missing address");
+		if (target.length() > 256) throw new IllegalArgumentException("address too long");
+		ServerAddress parsed;
+		try {
+			parsed = ServerAddress.parse(target);
+		} catch (RuntimeException e) {
+			throw new IllegalArgumentException("invalid address: " + target);
+		}
+
+		int state = onClient(() -> {
+			MinecraftClient client = MinecraftClient.getInstance();
+			boolean connecting = client.currentScreen instanceof ConnectScreen;
+			boolean connected = client.player != null || client.getNetworkHandler() != null || client.world != null;
+			cancelConnecting(client);
+			closeOrphanScreen(client);
+			if (connected) client.disconnect(new TitleScreen(), false);
+			return connecting ? 1 : connected ? 2 : 0;
+		});
+		String disconnected = waitForDisconnect(15);
+		if (!"disconnected".equals(disconnected)) return disconnected;
+
+		// Give a cancelled connector, or the proxy, a moment to release the old session.
+		if (state != 0 && !sleep(500)) return "stopped";
+		if (actions.cancelRequested()) return "stopped";
+
 		onClient(() -> {
 			MinecraftClient client = MinecraftClient.getInstance();
-			ServerAddress parsed = ServerAddress.parse(address);
-			ServerInfo info = new ServerInfo("SharkMCP", address, ServerInfo.ServerType.OTHER);
+			cancelConnecting(client);
+			ServerInfo info = new ServerInfo("SharkMCP", target, ServerInfo.ServerType.OTHER);
+			// Same as choosing "Enabled" for server resource packs in the server list.
+			info.setResourcePackPolicy(ServerInfo.ResourcePackPolicy.ENABLED);
 			ConnectScreen.connect(new TitleScreen(), client, parsed, info, false, null);
 			return null;
 		});
-		return waitUntil(connected -> connected, 60, "connected", "connect timed out");
+		String result = waitForConnect(60);
+		if ("connected".equals(result)) lastAddress = target;
+		return result;
 	}
 
 	String disconnect() {
+		boolean active = onClient(() -> {
+			MinecraftClient client = MinecraftClient.getInstance();
+			return client.player != null || client.getNetworkHandler() != null || client.world != null
+					|| client.currentScreen instanceof ConnectScreen;
+		});
+		if (!active) return "not connected";
 		onClient(() -> {
 			MinecraftClient client = MinecraftClient.getInstance();
-			if (client.world != null || client.getNetworkHandler() != null) {
+			cancelConnecting(client);
+			closeOrphanScreen(client);
+			if (client.player != null || client.getNetworkHandler() != null || client.world != null) {
 				client.disconnect(new TitleScreen(), false);
 			}
 			return null;
 		});
-		return waitUntil(connected -> !connected, 20, "disconnected", "disconnect timed out");
+		return waitForDisconnect(20);
 	}
 
 	String reconnect() {
-		String address = lastAddress;
-		if (address == null) {
-			address = onClient(() -> {
-				ServerInfo info = MinecraftClient.getInstance().getCurrentServerEntry();
-				return info == null ? null : info.address;
-			});
-		}
+		String address = onClient(() -> {
+			MinecraftClient client = MinecraftClient.getInstance();
+			ServerInfo info = client.getCurrentServerEntry();
+			if (info != null && info.address != null && !info.address.isBlank()) return info.address;
+			return lastAddress;
+		});
 		if (address == null || address.isBlank()) return "no server to reconnect to";
 		return connect(address);
 	}
@@ -435,7 +595,8 @@ public final class SharkMcpClient implements ClientModInitializer {
 		return onClient(() -> {
 			MinecraftClient client = MinecraftClient.getInstance();
 			if (client.currentScreen == null) return "no screen";
-			client.setScreen(null);
+			if (client.player == null) client.setScreen(new TitleScreen());
+			else client.setScreen(null);
 			return "closed";
 		});
 	}
@@ -591,22 +752,68 @@ public final class SharkMcpClient implements ClientModInitializer {
 		}
 	}
 
-	private String waitUntil(java.util.function.Predicate<Boolean> want, int timeoutSeconds, String ok, String fail) {
+	private String waitForDisconnect(int timeoutSeconds) {
 		long deadline = System.currentTimeMillis() + timeoutSeconds * 1000L;
-		while (System.currentTimeMillis() < deadline) {
+		while (true) {
 			if (actions.cancelRequested()) return "stopped";
-			Boolean connected = onClient(() -> {
+			boolean done = onClient(() -> {
 				MinecraftClient client = MinecraftClient.getInstance();
-				return client.player != null && client.getNetworkHandler() != null;
+				return client.player == null && client.getNetworkHandler() == null && client.world == null;
 			});
-			if (want.test(connected)) return ok;
-			try {
-				Thread.sleep(100);
-			} catch (InterruptedException e) {
-				return "stopped";
+			if (done) return "disconnected";
+			if (System.currentTimeMillis() >= deadline) return "disconnect timed out";
+			if (!sleep(50)) return "stopped";
+		}
+	}
+
+	private String waitForConnect(int timeoutSeconds) {
+		long deadline = System.currentTimeMillis() + timeoutSeconds * 1000L;
+		while (true) {
+			if (actions.cancelRequested()) return "stopped";
+			String status = onClient(() -> {
+				MinecraftClient client = MinecraftClient.getInstance();
+				if (client.player != null && client.getNetworkHandler() != null && client.world != null) {
+					return "connected";
+				}
+				if (client.currentScreen instanceof DisconnectedScreen) return "connect failed";
+				return null;
+			});
+			if (status != null) return status;
+			if (System.currentTimeMillis() >= deadline) return "connect timed out";
+			if (!sleep(100)) return "stopped";
+		}
+	}
+
+	private static void cancelConnecting(MinecraftClient client) {
+		if (!(client.currentScreen instanceof ConnectScreen screen)) return;
+		for (var element : screen.children()) {
+			if (element instanceof ButtonWidget button
+					&& ScreenTexts.CANCEL.getString().equals(button.getMessage().getString())) {
+				button.onPress(new AbstractInput() {
+					@Override
+					public int getKeycode() {
+						return 0;
+					}
+
+					@Override
+					public int modifiers() {
+						return 0;
+					}
+				});
+				return;
 			}
 		}
-		return fail;
+		client.setScreen(new TitleScreen());
+	}
+
+	private static boolean sleep(long millis) {
+		try {
+			Thread.sleep(millis);
+			return true;
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			return false;
+		}
 	}
 
 	private void log(String text) {
@@ -626,27 +833,94 @@ public final class SharkMcpClient implements ClientModInitializer {
 		}
 	}
 
-	private static JsonArray stacks(Iterable<ItemStack> items) {
-		JsonArray list = new JsonArray();
-		int slot = 0;
-		for (ItemStack stack : items) {
-			JsonObject entry = stack(stack);
-			if (entry != null) {
-				entry.addProperty("slot", slot);
-				list.add(entry);
-			}
-			slot++;
-		}
-		return list;
-	}
-
-	private static JsonObject stack(ItemStack stack) {
+	private static JsonObject stack(ItemStack stack, MinecraftClient client, ClientPlayerEntity player) {
 		if (stack == null || stack.isEmpty()) return null;
 		JsonObject json = new JsonObject();
 		json.addProperty("id", Registries.ITEM.getId(stack.getItem()).toString());
 		json.addProperty("count", stack.getCount());
 		json.addProperty("name", stack.getName().getString());
+		Text customName = stack.getCustomName();
+		if (customName != null) json.addProperty("customName", customName.getString());
+		json.addProperty("itemName", stack.getItemName().getString());
+		json.addProperty("maxCount", stack.getMaxCount());
+		json.addProperty("rarity", stack.getRarity().asString());
+		JsonArray tags = new JsonArray();
+		stack.streamTags().forEach(tag -> tags.add(tag.id().toString()));
+		if (!tags.isEmpty()) json.add("tags", tags);
+		if (stack.isDamageable()) {
+			json.addProperty("damage", stack.getDamage());
+			json.addProperty("maxDamage", stack.getMaxDamage());
+			json.addProperty("durability", stack.getMaxDamage() - stack.getDamage());
+		}
+		if (stack.contains(DataComponentTypes.UNBREAKABLE)) json.addProperty("unbreakable", true);
+		if (stack.hasEnchantments()) json.add("enchantments", enchantments(stack.getEnchantments()));
+
+		ItemEnchantmentsComponent stored = stack.get(DataComponentTypes.STORED_ENCHANTMENTS);
+		if (stored != null && !stored.isEmpty()) json.add("storedEnchantments", enchantments(stored));
+
+		LoreComponent lore = stack.get(DataComponentTypes.LORE);
+		if (lore != null && !lore.lines().isEmpty()) {
+			JsonArray lines = new JsonArray();
+			for (Text line : lore.lines()) lines.add(line.getString());
+			json.add("lore", lines);
+		}
+
+		AttributeModifiersComponent attributes = stack.get(DataComponentTypes.ATTRIBUTE_MODIFIERS);
+		if (attributes != null && !attributes.modifiers().isEmpty()) {
+			JsonArray list = new JsonArray();
+			for (AttributeModifiersComponent.Entry entry : attributes.modifiers()) {
+				JsonObject modifier = new JsonObject();
+				modifier.addProperty("attribute", entry.attribute().getIdAsString());
+				modifier.addProperty("id", entry.modifier().id().toString());
+				modifier.addProperty("value", entry.modifier().value());
+				modifier.addProperty("operation", entry.modifier().operation().asString());
+				modifier.addProperty("slot", entry.slot().asString());
+				list.add(modifier);
+			}
+			json.add("attributes", list);
+		}
+
+		NbtComponent customData = stack.get(DataComponentTypes.CUSTOM_DATA);
+		if (customData != null && !customData.isEmpty()) {
+			json.addProperty("customData", customData.copyNbt().toString());
+		}
+
+		try {
+			Item.TooltipContext context = client.world == null
+					? Item.TooltipContext.DEFAULT : Item.TooltipContext.create(client.world);
+			JsonArray tooltip = new JsonArray();
+			for (Text line : stack.getTooltip(context, player, TooltipType.BASIC)) tooltip.add(line.getString());
+			json.add("tooltip", tooltip);
+		} catch (RuntimeException ignored) {
+			// A broken component on one item must not take the whole inventory down.
+		}
+
+		String nbt = nbt(stack, client);
+		if (nbt != null) json.addProperty("nbt", nbt);
 		return json;
+	}
+
+	private static JsonArray enchantments(ItemEnchantmentsComponent component) {
+		JsonArray list = new JsonArray();
+		for (var entry : component.getEnchantmentEntries()) {
+			JsonObject enchantment = new JsonObject();
+			enchantment.addProperty("id", entry.getKey().getIdAsString());
+			enchantment.addProperty("level", entry.getIntValue());
+			list.add(enchantment);
+		}
+		return list;
+	}
+
+	private static String nbt(ItemStack stack, MinecraftClient client) {
+		try {
+			DynamicRegistryManager registries = client.getNetworkHandler() != null
+					? client.getNetworkHandler().getRegistryManager()
+					: client.world != null ? client.world.getRegistryManager() : DynamicRegistryManager.EMPTY;
+			RegistryOps<NbtElement> ops = RegistryOps.of(NbtOps.INSTANCE, registries);
+			return ItemStack.CODEC.encodeStart(ops, stack).result().map(Object::toString).orElse(null);
+		} catch (RuntimeException e) {
+			return stack.getComponentChanges().toString();
+		}
 	}
 
 	private static final class Motion {

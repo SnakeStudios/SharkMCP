@@ -21,7 +21,7 @@ class McpProtocolTest {
 		JsonObject result = ok(call("initialize", "{\"protocolVersion\":\"2025-06-18\"}"));
 		assertEquals("2025-06-18", result.get("protocolVersion").getAsString());
 		assertEquals("sharkmcp", result.getAsJsonObject("serverInfo").get("name").getAsString());
-		assertEquals("1.0.0", result.getAsJsonObject("serverInfo").get("version").getAsString());
+		assertEquals("1.0.1", result.getAsJsonObject("serverInfo").get("version").getAsString());
 		assertFalse(result.getAsJsonObject("capabilities").getAsJsonObject("tools").get("listChanged").getAsBoolean());
 		assertTrue(result.get("instructions").getAsString().contains("screenshot"));
 	}
