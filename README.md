@@ -51,7 +51,7 @@ queued actions and releases held inputs. It does not touch the chat queue.
 
 ## Install
 
-Put `sharkmcp-1.0.1.jar` and Fabric API in your `mods` folder and launch the
+Put `sharkmcp-1.0.2.jar` and Fabric API in your `mods` folder and launch the
 1.21.11 profile. The log prints:
 
 ```

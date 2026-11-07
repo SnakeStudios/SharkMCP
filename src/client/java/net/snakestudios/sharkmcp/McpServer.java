@@ -114,19 +114,22 @@ public final class McpServer {
 		result.add("capabilities", capabilities);
 		JsonObject info = new JsonObject();
 		info.addProperty("name", "sharkmcp");
-		info.addProperty("version", "1.0.1");
+		info.addProperty("version", "1.0.2");
 		result.add("serverInfo", info);
 		result.addProperty("instructions",
 				"World actions run one at a time. chat is a separate queue and does not wait. "
 						+ "look moves the camera smoothly. screenshot is at most 1280x720 jpeg. "
-						+ "move uses WASD booleans for a duration. Commands omit the leading slash.");
+						+ "move uses WASD booleans for a duration. Commands omit the leading slash. "
+						+ "For anything about items, inventory, lore, NBT or the contents of an open chest/container, "
+						+ "call get_inventory instead of screenshot: it returns exact structured data, includes the open "
+						+ "container, and is immediate. Screenshots cannot read item lore or NBT reliably.");
 		return result;
 	}
 
 	private static JsonObject tools() {
 		JsonArray tools = new JsonArray();
 		tool(tools, "get_state", "Position, look, health, hunger, xp, server, whether the HUD is hidden.", obj());
-		tool(tools, "get_inventory", "Every inventory slot: hotbar, main, armor, offhand, cursor and any open container. Each item includes its id, count, names, lore, enchantments, attributes, tags, durability, tooltip and full NBT/components.", obj());
+		tool(tools, "get_inventory", "Use this instead of screenshot for any question about items, inventory, lore, NBT or an open container. Returns exact structured data (not pixels): the player's hotbar, main inventory, armor, offhand and cursor, plus the contents of an open container under openContainer (chest, barrel, shulker box, furnace, crafting table, villager, etc.). Each item includes id, count, names, lore, enchantments, attributes, tags, rarity, durability, custom_data, tooltip and full NBT/components. Only non-empty slots are listed; container items also have slot and containerSlot. Reads are immediate, exact and much cheaper than a screenshot.", obj());
 		JsonObject chat = obj();
 		chat.add("limit", num("How many recent lines.", 50));
 		tool(tools, "get_chat", "Recent chat and game messages.", chat);
@@ -175,7 +178,7 @@ public final class McpServer {
 		tool(tools, "set_hud", "Hide or show the HUD. The previous value is restored after a screenshot that hid it.", hud);
 		JsonObject shot = obj();
 		shot.add("hide_hud", bool("Hide the HUD for this shot, then restore it."));
-		tool(tools, "screenshot", "Capture the framebuffer as a 1280x720-or-smaller jpeg.", shot);
+		tool(tools, "screenshot", "Capture the framebuffer as a 1280x720-or-smaller jpeg. Use it for visual questions (layout, colors, entities, what the world looks like). For items, inventories or open containers use get_inventory instead: it returns exact item data, lore, NBT and the container contents, which a screenshot cannot read reliably.", shot);
 		JsonObject wait = obj();
 		wait.add("seconds", num("Seconds to wait. Required.", null));
 		tool(tools, "wait", "Wait, blocking the action queue.", wait);

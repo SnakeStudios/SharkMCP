@@ -21,9 +21,10 @@ class McpProtocolTest {
 		JsonObject result = ok(call("initialize", "{\"protocolVersion\":\"2025-06-18\"}"));
 		assertEquals("2025-06-18", result.get("protocolVersion").getAsString());
 		assertEquals("sharkmcp", result.getAsJsonObject("serverInfo").get("name").getAsString());
-		assertEquals("1.0.1", result.getAsJsonObject("serverInfo").get("version").getAsString());
+		assertEquals("1.0.2", result.getAsJsonObject("serverInfo").get("version").getAsString());
 		assertFalse(result.getAsJsonObject("capabilities").getAsJsonObject("tools").get("listChanged").getAsBoolean());
 		assertTrue(result.get("instructions").getAsString().contains("screenshot"));
+		assertTrue(result.get("instructions").getAsString().contains("get_inventory"));
 	}
 
 	@Test
@@ -54,6 +55,21 @@ class McpProtocolTest {
 			assertEquals(-32603, error.get("code").getAsInt(), tool);
 			assertTrue(error.get("message").getAsString().contains("still starting"), tool + " " + error);
 		}
+	}
+
+	@Test
+	void getInventoryDescriptionPushesModelsAwayFromScreenshots() {
+		JsonArray tools = ok(call("tools/list", null)).getAsJsonArray("tools");
+		JsonObject inventory = null;
+		for (JsonElement tool : tools) {
+			JsonObject entry = tool.getAsJsonObject();
+			if ("get_inventory".equals(entry.get("name").getAsString())) inventory = entry;
+		}
+		assertTrue(inventory != null);
+		String description = inventory.get("description").getAsString();
+		assertTrue(description.contains("instead of screenshot"));
+		assertTrue(description.contains("openContainer"));
+		assertTrue(description.contains("NBT"));
 	}
 
 	@Test
